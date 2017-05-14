@@ -52,15 +52,12 @@ def input_y():
 
 	y=npy.load('y_train.npy')
 
-	zy=npy.ones([len(y),11])
+	zy=npy.zeros([len(y),11])
 
 	for i in range(len(y)):
-
-		zy[i,0:y[i]-1]=0
-
+		
 		zy[i,y[i]]=1
 
-		zy[i,y[i]+1:]=0
 
 	return zy
 
