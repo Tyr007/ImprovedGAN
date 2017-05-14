@@ -1,0 +1,507 @@
+'''
+
+Imporved DCGAN with SVM of DenseLayer
+
+Author:Tyr
+
+Project:
+
+Denpendencies: tensorflow1.0, lassagne and keras 2.0 
+
+Usage: python2 
+
+'''
+
+import numpy as np
+
+import time
+
+import form_input
+
+
+
+from keras.models import Sequential
+
+from keras.layers import Dense, Activation, Flatten, Reshape
+
+from keras.layers import Conv2D, Conv2DTranspose
+
+from keras.layers import UpSampling2D, LeakyReLU, Dropout
+
+from keras.layers import BatchNormalization
+
+from keras.optimizers import Adam, RMSprop
+
+
+
+import matplotlib.pyplot as plt
+
+
+
+
+
+class ImpDCGAN(object):
+
+	def __init__(self, img_rows=28, img_cols=28, channel=1):
+
+		self.img_rows = img_rows
+
+		self.img_cols = img_cols
+
+		self.channel = channel
+
+		self.D = None
+
+		self.G = None
+
+		self.AM= None
+
+		self.DM= None
+
+
+
+	def discriminator(self): 
+
+		#now the D model is like Original GAN. ImprovedGAN need more Conv2D layers and NIN layers.
+
+		if self.D:
+
+			return self.D
+
+		self.D= Sequential()
+
+		depth=64
+
+		dropout=0.4
+
+		#in 28*28*1, depth1
+
+		#out 10*10*1 depth 64
+
+		input_shape=(self.img_rows, self.img_cols, self.channel)
+
+		self.D.add(Conv2D(depth*1,5,strides=2,input_shape=input_shape,padding='same',activation=LeakyReLU(alpha=0.2)))
+
+		self.D.add(Dropout(dropout))
+
+		
+
+		self.D.add(Conv2D(depth*2,5,strides=2,input_shape=input_shape,padding='same',activation=LeakyReLU(alpha=0.2)))
+
+		self.D.add(Dropout(dropout))
+
+		self.D.add(Conv2D(depth*4,5,strides=2,input_shape=input_shape,padding='same',activation=LeakyReLU(alpha=0.2)))
+
+		self.D.add(Dropout(dropout))
+
+		self.D.add(Conv2D(depth*8,5,strides=2,input_shape=input_shape,padding='same',activation=LeakyReLU(alpha=0.2)))
+
+		self.D.add(Dropout(dropout))
+
+		
+
+		#out to one-hot prob
+
+		self.D.add(Flatten())
+
+		self.D.add(Dense(11))
+
+		self.D.add(Activation('sigmoid'))
+
+		self.D.summary()
+
+		return self.D
+
+
+
+
+
+
+
+	def generator(self):
+
+		if self.G:
+
+			return self.G
+
+		self.G = Sequential()
+
+		dropout =0.4
+
+		depth=256
+
+		dim=7
+
+		self.G.add(Dense(dim*dim*depth, input_dim=100))
+
+		self.G.add(BatchNormalization(momentum=0.9))
+
+		self.G.add(Activation('relu'))
+
+		self.G.add(Reshape((dim,dim,depth)))
+
+		self.G.add(Dropout(dropout))
+
+		# Upper: noise to dim*dim*depth
+
+		# Lower: dim*dim*depth less depth, dim up
+
+		self.G.add(UpSampling2D())
+
+		self.G.add(Conv2DTranspose(int(depth/2),5,padding='same'))
+
+		self.G.add(BatchNormalization(momentum=0.9))
+
+		self.G.add(Activation('relu'))
+
+		
+
+		self.G.add(UpSampling2D())
+
+		self.G.add(Conv2DTranspose(int(depth/4),5,padding='same'))
+
+		self.G.add(BatchNormalization(momentum=0.9))
+
+		self.G.add(Activation('relu'))
+
+
+
+		self.G.add(Conv2DTranspose(int(depth/8),5,padding='same'))
+
+		self.G.add(BatchNormalization(momentum=0.9))
+
+		self.G.add(Activation('relu'))
+
+			
+
+		#end of dim change
+
+		#reshape to image (Grayscale, 0.0-1.0 per pix
+
+		
+
+		self.G.add(Conv2DTranspose(1,5,padding='same'))
+
+		self.G.add(Activation('sigmoid'))
+
+		self.G.summary()
+
+		return self.G
+
+
+
+	def discriminator_model(self):
+
+		if self.DM:
+
+			return self.DM
+
+		optimizer=RMSprop(lr=0.0008,clipvalue=1.0,decay=6e-8)
+
+		self.DM=Sequential()
+
+		self.DM.add(self.discriminator())
+
+		self.DM.compile(loss='binary_crossentropy',optimizer=optimizer,metrics=['accuracy'])
+
+		return self.DM
+
+
+
+	def adversarial_model(self):
+
+		if self.AM:
+
+			return self.AM
+
+		optimizer=RMSprop(lr=0.0004,clipvalue=1.0,decay=3e-8)
+
+		self.AM=Sequential()
+
+		self.AM.add(self.generator())
+
+		self.AM.add(self.discriminator())
+
+		self.AM.compile(loss='binary_crossentropy',optimizer=optimizer,metrics=['accuracy'])
+
+		return self.AM
+
+
+
+class Improved_DCGAN(object):
+
+	def __init__(self):
+
+		self.img_rows = 28
+
+		self.img_cols = 28
+
+		self.channel = 1
+
+		self.x_train = form_input.input_x()
+
+			#data type: [number,x,y,channel] of 0.0-1.0 
+
+		self.x_sum = form_input.input_sum()
+
+		self.y_train = form_input.input_y()
+
+		self.typesum=11
+
+			#data type: [number,K+1] of K type and K+1=fake  K=5
+
+		#hope Form_input give the right types.
+
+		
+
+		self.DCGAN=ImpDCGAN()
+
+		self.discriminator = self.DCGAN.discriminator_model()
+
+		self.adversarial = self.DCGAN.adversarial_model()
+
+		self.generator = self.DCGAN.generator()
+
+	def save(self):
+
+		self.generator.save_weights('Gweight.h5')
+
+		self.adversarial.save_weights('Aweight.h5')
+
+		self.discriminator.save_weights('Dweight.h5')
+
+	def train(self, step=0, saved=False, train_steps=100, batch_size=256, save_interval=0):
+
+		if saved == True :
+
+			self.generator.load_weights('Gweight.h5')
+
+			self.adversarial.load_weights('Aweight.h5')
+
+			self.discriminator.load_weights('Dweight.h5')
+
+		i=0
+
+		# everytime use train will train it by train_steps.
+
+		while i<train_steps :
+
+			data_list=np.random.randint(0,self.x_sum,batch_size)
+
+			#the list of this batch;
+
+			images_train = self.x_train[data_list, :, :, :]
+
+			noise = np.random.uniform(-1.0,1.0,size=[batch_size,100])
+
+			images_fake=self.generator.predict(noise)
+
+
+
+
+
+			
+
+
+
+			x = np.concatenate((images_train, images_fake))
+
+			y = np.ones([2*batch_size,self.typesum])
+
+			y[batch_size: , :]=0
+
+			y[batch_size: , self.typesum-1]=1
+
+			y[:batch_size,:]=self.y_train[data_list]
+
+			
+
+			d_loss = self.discriminator.train_on_batch(x,y)
+
+			y = np.ones([batch_size,self.typesum])
+
+			if self.typesum>2:
+
+				y[:,0:self.typesum-2]=0
+
+			#make all type to 0 for fake type.
+
+			noise = np.random.uniform(-1.0,1.0,size=[batch_size,100])
+
+			a_loss=self.adversarial.train_on_batch(noise,y)
+
+			log_mesg = "%d : [D loss:%f, acc:%f]  [A loss:%f, acc:%f]" %(i+1+step, d_loss[0], d_loss[1], a_loss[0], a_loss[1])
+
+			print (log_mesg)
+
+			flog=open('logfile.txt','a')
+
+			flog.write(log_mesg)
+
+
+
+			if save_interval>0:
+
+				if (i+1)%save_interval==0:
+
+					self.show_image(save2file=True, samples=16, step=i+1+step)
+
+					self.show_image(save2file=True, fake=False, step=i+1+step)
+
+			
+
+			
+
+			i=i+1
+
+			
+
+	def show_image(self, save2file=False, fake=True, samples=16, step=0):
+
+		if fake:
+
+			noise= np.random.uniform(-1.0,1.0,size=[samples,100])
+
+			filename='save/ImpG_%d.png' %step
+
+			images=self.generator.predict(noise)
+
+			lig=self.discriminator.predict(images)
+
+			
+
+		else:
+
+			i=np.random.randint(0,self.x_sum,samples)
+
+			images=self.x_train[i,:, :, :]
+
+			filename='save/ImpData_%d.png' %step
+
+			lig=self.discriminator.predict(images)
+
+			
+
+		plt.figure(figsize=(10,10))
+
+		for i in range(samples):
+
+			plt.subplot(4,4,i+1)
+
+			image=images[i,:,:,:]
+
+			image=np.reshape(image,[self.img_rows,self.img_cols])
+
+			plt.imshow(image,cmap='gray')
+
+			plt.axis('off')
+
+		plt.tight_layout()
+
+		if save2file:
+
+			plt.savefig(filename)
+
+			plt.close('all')
+
+			if fake :
+
+				typefile='save/ImgFL_%d.txt' %step
+
+			else :
+
+				typefile='save/ImgDL_%d.txt' %step
+
+			fp2=open(typefile,'w')
+
+			fp2.write(str(lig))
+
+			fp2.close()
+
+		else:
+
+			plt.show()
+
+			print lig
+
+		
+
+
+
+
+
+if __name__ == '__main__':
+
+	savestep=10
+
+	mainstep=1000
+
+	printat=10
+
+	fp=open('savedata.txt','a')
+
+	fp.close()
+
+	fp=open('savedata.txt','r+')
+
+	st=fp.read()
+
+	if st=='' :
+
+		fp.write('0')
+
+		st='0'
+
+	fp.close()
+
+	i=int(st)
+
+	if i==0 :
+
+		print 'No saved data, new module start.'
+
+	else :
+
+		print 'Saved data load. Now step:', i
+
+	IDC=Improved_DCGAN()
+
+
+
+	while i<mainstep :
+
+		if i==0 :
+
+			IDC.train(saved=False,step=0,train_steps=savestep,batch_size=256,save_interval=printat)
+
+			i=i+savestep
+
+			IDC.save()
+
+			print 'Module saved to file, now step:', i
+
+			fp=open('savedata.txt','w')
+
+			fp.write(str(i))
+
+			fp.close()
+
+		else:
+
+			IDC.train(saved=True,step=i,train_steps=savestep,batch_size=256,save_interval=printat)
+
+			i=i+savestep
+
+			IDC.save()
+
+			print 'Module saved to file, now step:', i
+
+			fp=open('savedata.txt','w')
+
+			fp.write(str(i))
+
+			fp.close()
+
+	print 'train finished'
+
+	
